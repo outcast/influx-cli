@@ -5,6 +5,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gobs/readline"
 	"github.com/influxdb/influxdb/client"
+	"github.com/juanmera/tablewriter"
 	"github.com/rcrowley/go-metrics"
 	//	"log"
 	"bufio"
@@ -53,6 +54,7 @@ var timing bool
 var dateTime bool
 var recordsOnly bool
 var async bool
+var tableView bool
 var asyncInserts chan *client.Series
 var asyncInsertsCommitted chan int
 var forceInsertsFlush chan bool
@@ -139,6 +141,7 @@ func init() {
 	flag.StringVar(&db, "db", "", "database to use")
 	flag.BoolVar(&recordsOnly, "recordsOnly", false, "when enabled, doesn't display header")
 	flag.BoolVar(&async, "async", false, "when enabled, asynchronously flushes inserts")
+	flag.BoolVar(&tableView, "table", true, "format output with table view")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: influx-cli [flags] [query to execute on start]")
@@ -849,6 +852,33 @@ func listServersHandler(cmd []string, out io.Writer) *Timing {
 	return timings
 }
 
+func point2s(i interface{}) (out string) {
+	switch i.(type) {
+	case string:
+		out = i.(string)
+	case int:
+		out = strconv.Itoa(i.(int))
+	case float64:
+		out = strconv.FormatFloat(i.(float64), 'f', 6, 64)
+	}
+	return out
+}
+
+func printSeriesAsTable(series *client.Series) {
+	table := tablewriter.NewWriter(os.Stdout)
+	f := func(s string) string { return s }
+	table.SetTitleFunc(f)
+	table.SetHeader(series.Columns)
+	for _, points := range series.Points {
+		spoints := make([]string, 0)
+		for _, point := range points {
+			spoints = append(spoints, point2s(point))
+		}
+		table.Append(spoints)
+	}
+	table.Render()
+}
+
 func listSeriesHandler(cmd []string, out io.Writer) *Timing {
 	timings := makeTiming()
 	list_series, err := cl.Query(cmd[0])
@@ -858,8 +888,12 @@ func listSeriesHandler(cmd []string, out io.Writer) *Timing {
 		return timings
 	}
 	for _, series := range list_series {
-		for _, p := range series.Points {
-			fmt.Fprintln(out, p[1])
+		if tableView {
+			printSeriesAsTable(series)
+		} else {
+			for _, p := range series.Points {
+				fmt.Fprintln(out, p[1])
+			}
 		}
 	}
 	timings.Printed = time.Now()
@@ -932,37 +966,41 @@ func selectHandler(cmd []string, out io.Writer) *Timing {
 	var ok bool
 
 	for _, serie := range series {
-		if !recordsOnly {
-			fmt.Fprintln(out, "##", serie.Name)
-		}
+		if tableView {
+			printSeriesAsTable(serie)
+		} else {
+			if !recordsOnly {
+				fmt.Fprintln(out, "##", serie.Name)
+			}
 
-		colrows := make([]string, len(serie.Columns), len(serie.Columns))
+			colrows := make([]string, len(serie.Columns), len(serie.Columns))
 
-		for i, col := range serie.Columns {
-			if spec, ok = specs[col]; !ok {
-				spec = defaultSpec
+			for i, col := range serie.Columns {
+				if spec, ok = specs[col]; !ok {
+					spec = defaultSpec
+				}
+				if !recordsOnly {
+					fmt.Fprintf(out, spec.Header, col)
+				}
+				colrows[i] = spec.Row
 			}
 			if !recordsOnly {
-				fmt.Fprintf(out, spec.Header, col)
+				fmt.Fprintln(out)
 			}
-			colrows[i] = spec.Row
-		}
-		if !recordsOnly {
-			fmt.Fprintln(out)
-		}
-		for _, p := range serie.Points {
-			for i, fmtStr := range colrows {
-				if i == 0 && dateTime {
-					msFloat := p[i].(float64)
-					ns := (int64(msFloat) % 1000) * 1000000
-					s := int64(msFloat / 1000)
-					d := time.Unix(s, ns)
-					fmt.Fprintf(out, fmtStr, d)
-				} else {
-					fmt.Fprintf(out, fmtStr, p[i])
+			for _, p := range serie.Points {
+				for i, fmtStr := range colrows {
+					if i == 0 && dateTime {
+						msFloat := p[i].(float64)
+						ns := (int64(msFloat) % 1000) * 1000000
+						s := int64(msFloat / 1000)
+						d := time.Unix(s, ns)
+						fmt.Fprintf(out, fmtStr, d)
+					} else {
+						fmt.Fprintf(out, fmtStr, p[i])
+					}
 				}
+				fmt.Fprintln(out)
 			}
-			fmt.Fprintln(out)
 		}
 	}
 	timings.Printed = time.Now()
