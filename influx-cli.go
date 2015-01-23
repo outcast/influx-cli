@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/BurntSushi/toml"
-	"github.com/andrew-d/go-termutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/gobs/readline"
 	"github.com/influxdb/influxdb/client"
@@ -13,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	usr "os/user"
@@ -20,7 +20,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"net/url"
 )
 
 // the following client methods are not implemented yet.
@@ -338,11 +337,16 @@ func main() {
 	//go metrics.Log(metrics.DefaultRegistry, 10e9, log.New(os.Stderr, "metrics: ", log.Lmicroseconds))
 	go committer()
 
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		panic(err)
+	}
+
 	if query != "" {
 		// execute query passed from cmd arg and stop
 		cmd := strings.TrimSuffix(strings.TrimSpace(query), ";")
 		handle(cmd)
-	} else if !termutil.Isatty(os.Stdin.Fd()) {
+	} else if !(fi.Mode()&os.ModeNamedPipe == 0) {
 		// execute all input from stdin and stop
 		readStdin()
 	} else {
