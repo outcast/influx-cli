@@ -55,6 +55,7 @@ var dateTime bool
 var recordsOnly bool
 var async bool
 var tableView bool
+var separateChar string
 var asyncInserts chan *client.Series
 var asyncInsertsCommitted chan int
 var forceInsertsFlush chan bool
@@ -142,6 +143,7 @@ func init() {
 	flag.BoolVar(&recordsOnly, "recordsOnly", false, "when enabled, doesn't display header")
 	flag.BoolVar(&async, "async", false, "when enabled, asynchronously flushes inserts")
 	flag.BoolVar(&tableView, "table", true, "format output with table view")
+	flag.StringVar(&separateChar, "separator", "\t", "separate raw output by this char")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: influx-cli [flags] [query to execute on start]")
@@ -949,57 +951,17 @@ func selectHandler(cmd []string, out io.Writer) *Timing {
 		fmt.Fprintf(os.Stderr, err.Error()+"\n")
 		return timings
 	}
-	type Spec struct {
-		Header string
-		Row    string
-	}
-	specs := map[string]Spec{
-		"time":            {"%20s", "%20f"},
-		"sequence_number": {"%16s", "      %10f"},
-		"value":           {"%20s", "%20f"},
-	}
-	if dateTime {
-		specs["time"] = Spec{"%33s", "%33s"}
-	}
-	defaultSpec := Spec{"%20s", "%20v"}
-	var spec Spec
-	var ok bool
 
 	for _, serie := range series {
 		if tableView {
 			printSeriesAsTable(serie)
 		} else {
-			if !recordsOnly {
-				fmt.Fprintln(out, "##", serie.Name)
-			}
-
-			colrows := make([]string, len(serie.Columns), len(serie.Columns))
-
-			for i, col := range serie.Columns {
-				if spec, ok = specs[col]; !ok {
-					spec = defaultSpec
+			for _, points := range serie.Points {
+				spoints := make([]string, 0)
+				for _, point := range points {
+					spoints = append(spoints, point2s(point))
 				}
-				if !recordsOnly {
-					fmt.Fprintf(out, spec.Header, col)
-				}
-				colrows[i] = spec.Row
-			}
-			if !recordsOnly {
-				fmt.Fprintln(out)
-			}
-			for _, p := range serie.Points {
-				for i, fmtStr := range colrows {
-					if i == 0 && dateTime {
-						msFloat := p[i].(float64)
-						ns := (int64(msFloat) % 1000) * 1000000
-						s := int64(msFloat / 1000)
-						d := time.Unix(s, ns)
-						fmt.Fprintf(out, fmtStr, d)
-					} else {
-						fmt.Fprintf(out, fmtStr, p[i])
-					}
-				}
-				fmt.Fprintln(out)
+				fmt.Fprintf(os.Stdout, "%s\n", strings.Join(spoints, separateChar))
 			}
 		}
 	}
