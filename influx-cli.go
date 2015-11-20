@@ -5,7 +5,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/andrew-d/go-termutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/influxdb/influxdb/client.v0.8.8"
+	"github.com/influxdb/influxdb.v0.8.8/client"
 	"github.com/nemith/goline"
 	"github.com/juanmera/tablewriter"
 	"github.com/rcrowley/go-metrics"
