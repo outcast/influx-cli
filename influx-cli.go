@@ -1,9 +1,7 @@
 package main
 
 import (
-	"gopkg.in/yaml.v2"
 	"github.com/BurntSushi/toml"
-	"github.com/andrew-d/go-termutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/outcast/influxdb-client-v0.8"
 	"github.com/nemith/goline"
