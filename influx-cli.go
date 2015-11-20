@@ -4,8 +4,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/andrew-d/go-termutil"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/gobs/readline"
 	"github.com/influxdb/influxdb/client"
+	"github.com/nemith/goline"
 	"github.com/rcrowley/go-metrics"
 	//	"log"
 	"bufio"
@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	usr "os/user"
@@ -20,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"net/url"
 )
 
 // the following client methods are not implemented yet.
@@ -353,18 +353,7 @@ func main() {
 		// execute all input from stdin and stop
 		readStdin()
 	} else {
-		// if stdin is a tty, provide readline prompt with history.
-		err = readline.ReadHistoryFile(path_hist)
-		if err != nil && err.Error() != "no such file or directory" {
-			fmt.Fprintf(os.Stderr, "Cannot read '%s': %s\n", path_hist, err.Error())
-			os.Exit(1)
-		}
 		ui()
-		err = readline.WriteHistoryFile(path_hist)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot write to '%s': %s\n", path_hist, err.Error())
-			Exit(1)
-		}
 	}
 	Exit(0)
 }
@@ -398,28 +387,35 @@ func readStdin() {
 }
 
 func ui() {
-	prompt := "influx> "
-L:
+	gl := goline.NewGoLine(goline.StringPrompt("influx> "))
 	for {
-		switch result := readline.ReadLine(&prompt); true {
-		case result == nil:
+		data, err := gl.Line()
+		if err != nil {
+			if err == goline.UserTerminatedError {
+				fmt.Println("\nUser terminated.")
+				return
+			} else {
+				panic(err)
+			}
+		}
+
+		switch result := data; {
+		case result == "":
 			fmt.Println("")
-			break L
-		case *result == "exit":
-			readline.AddHistory(*result)
-			break L
-		case *result == "commands":
-			readline.AddHistory(*result)
+		case result == "exit":
+			fmt.Println("\n")
+			return
+		case result == "commands" || result == "help" || result == "?":
+			fmt.Println("\n")
 			printHelp()
-		case *result == "help":
-			readline.AddHistory(*result)
-			printHelp()
-		case *result != "": //ignore blank lines
-			readline.AddHistory(*result)
-			cmd := strings.TrimSpace(*result)
+		default:
+			cmd := strings.TrimSpace(result)
+			fmt.Println("\n")
 			handle(cmd)
 		}
+
 	}
+
 }
 
 func handle(cmd string) {
