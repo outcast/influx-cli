@@ -58,6 +58,7 @@ var asyncInserts chan *client.Series
 var asyncInsertsCommitted chan int
 var forceInsertsFlush chan bool
 var sync_inserts_timer metrics.Timer
+var ssl bool
 
 var path_rc, path_hist string
 
@@ -125,6 +126,7 @@ type Config struct {
 	User          string
 	Pass          string
 	Db            string
+	Ssl           bool
 	AsyncCapacity int
 	AsyncMaxWait  int
 }
@@ -140,6 +142,7 @@ func init() {
 	flag.StringVar(&db, "db", "", "database to use")
 	flag.BoolVar(&recordsOnly, "recordsOnly", false, "when enabled, doesn't display header")
 	flag.BoolVar(&async, "async", false, "when enabled, asynchronously flushes inserts")
+	flag.BoolVar(&ssl, "ssl", false, "when enabled, uses SSL/TLS for communication")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: influx-cli [flags] [query to execute on start]")
@@ -264,6 +267,7 @@ func getClient() error {
 		Username: user,
 		Password: pass,
 		Database: db,
+		IsSecure: ssl,
 	}
 	var err error
 	cl, err = client.NewClient(cfg)
@@ -318,6 +322,9 @@ func main() {
 	}
 	if conf.Db != "" {
 		db = conf.Db
+	}
+	if conf.Ssl != false {
+		ssl = conf.Ssl
 	}
 	if conf.AsyncCapacity > 0 {
 		AsyncCapacity = conf.AsyncCapacity
