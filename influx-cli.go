@@ -6,6 +6,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/influxdb/influxdb/client"
 	"github.com/nemith/goline"
+	"github.com/juanmera/tablewriter"
 	"github.com/rcrowley/go-metrics"
 	//	"log"
 	"bufio"
@@ -54,6 +55,8 @@ var timing bool
 var dateTime bool
 var recordsOnly bool
 var async bool
+var tableView bool
+var separateChar string
 var asyncInserts chan *client.Series
 var asyncInsertsCommitted chan int
 var forceInsertsFlush chan bool
@@ -143,6 +146,8 @@ func init() {
 	flag.BoolVar(&recordsOnly, "recordsOnly", false, "when enabled, doesn't display header")
 	flag.BoolVar(&async, "async", false, "when enabled, asynchronously flushes inserts")
 	flag.BoolVar(&ssl, "ssl", false, "when enabled, uses SSL/TLS for communication")
+	flag.BoolVar(&tableView, "table", true, "format output with table view")
+	flag.StringVar(&separateChar, "separator", "\t", "separate raw output by this char")
 
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: influx-cli [flags] [query to execute on start]")
@@ -345,11 +350,16 @@ func main() {
 	//go metrics.Log(metrics.DefaultRegistry, 10e9, log.New(os.Stderr, "metrics: ", log.Lmicroseconds))
 	go committer()
 
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		panic(err)
+	}
+
 	if query != "" {
 		// execute query passed from cmd arg and stop
 		cmd := strings.TrimSuffix(strings.TrimSpace(query), ";")
 		handle(cmd)
-	} else if !termutil.Isatty(os.Stdin.Fd()) {
+	} else if !(fi.Mode()&os.ModeNamedPipe == 0) {
 		// execute all input from stdin and stop
 		readStdin()
 	} else {
@@ -848,6 +858,33 @@ func listServersHandler(cmd []string, out io.Writer) *Timing {
 	return timings
 }
 
+func point2s(i interface{}) (out string) {
+	switch i.(type) {
+	case string:
+		out = i.(string)
+	case int:
+		out = strconv.Itoa(i.(int))
+	case float64:
+		out = strconv.FormatFloat(i.(float64), 'f', 6, 64)
+	}
+	return out
+}
+
+func printSeriesAsTable(series *client.Series) {
+	table := tablewriter.NewWriter(os.Stdout)
+	f := func(s string) string { return s }
+	table.SetTitleFunc(f)
+	table.SetHeader(series.Columns)
+	for _, points := range series.Points {
+		spoints := make([]string, 0)
+		for _, point := range points {
+			spoints = append(spoints, point2s(point))
+		}
+		table.Append(spoints)
+	}
+	table.Render()
+}
+
 func listSeriesHandler(cmd []string, out io.Writer) *Timing {
 	timings := makeTiming()
 	list_series, err := cl.Query(cmd[0])
@@ -857,8 +894,12 @@ func listSeriesHandler(cmd []string, out io.Writer) *Timing {
 		return timings
 	}
 	for _, series := range list_series {
-		for _, p := range series.Points {
-			fmt.Fprintln(out, p[1])
+		if tableView {
+			printSeriesAsTable(series)
+		} else {
+			for _, p := range series.Points {
+				fmt.Fprintln(out, p[1])
+			}
 		}
 	}
 	timings.Printed = time.Now()
@@ -914,54 +955,18 @@ func selectHandler(cmd []string, out io.Writer) *Timing {
 		fmt.Fprintf(os.Stderr, err.Error()+"\n")
 		return timings
 	}
-	type Spec struct {
-		Header string
-		Row    string
-	}
-	specs := map[string]Spec{
-		"time":            {"%20s", "%20f"},
-		"sequence_number": {"%16s", "      %10f"},
-		"value":           {"%20s", "%20f"},
-	}
-	if dateTime {
-		specs["time"] = Spec{"%33s", "%33s"}
-	}
-	defaultSpec := Spec{"%20s", "%20v"}
-	var spec Spec
-	var ok bool
 
 	for _, serie := range series {
-		if !recordsOnly {
-			fmt.Fprintln(out, "##", serie.Name)
-		}
-
-		colrows := make([]string, len(serie.Columns), len(serie.Columns))
-
-		for i, col := range serie.Columns {
-			if spec, ok = specs[col]; !ok {
-				spec = defaultSpec
-			}
-			if !recordsOnly {
-				fmt.Fprintf(out, spec.Header, col)
-			}
-			colrows[i] = spec.Row
-		}
-		if !recordsOnly {
-			fmt.Fprintln(out)
-		}
-		for _, p := range serie.Points {
-			for i, fmtStr := range colrows {
-				if i == 0 && dateTime {
-					msFloat := p[i].(float64)
-					ns := (int64(msFloat) % 1000) * 1000000
-					s := int64(msFloat / 1000)
-					d := time.Unix(s, ns)
-					fmt.Fprintf(out, fmtStr, d)
-				} else {
-					fmt.Fprintf(out, fmtStr, p[i])
+		if tableView {
+			printSeriesAsTable(serie)
+		} else {
+			for _, points := range serie.Points {
+				spoints := make([]string, 0)
+				for _, point := range points {
+					spoints = append(spoints, point2s(point))
 				}
+				fmt.Fprintf(os.Stdout, "%s\n", strings.Join(spoints, separateChar))
 			}
-			fmt.Fprintln(out)
 		}
 	}
 	timings.Printed = time.Now()
